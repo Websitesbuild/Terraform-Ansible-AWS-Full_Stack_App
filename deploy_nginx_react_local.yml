@@ -1,0 +1,89 @@
+- hosts: webservers
+  become: yes
+
+  vars:
+    repo_url: "https://github.com/Websitesbuild/foodapp.git"
+    app_dir: /opt/reactapp
+    web_root: /var/www/reactapp
+
+  tasks:
+
+    # Install packages
+    - name: Install dependencies
+      apt:
+        name: [nginx, git, curl]
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    # Install Node.js (latest stable)
+    - name: Install Node 18
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+        apt-get install -y nodejs
+      when: ansible_os_family == "Debian"
+
+    # Clone repo
+    - name: Clone React repo
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        force: yes
+
+    # Install dependencies
+    - name: Install npm packages
+      command: npm install
+      args:
+        chdir: "{{ app_dir }}"
+
+    # Build React app
+    - name: Build React app
+      command: npm run build
+      args:
+        chdir: "{{ app_dir }}"
+
+    # Prepare web directory
+    - name: Create web root
+      file:
+        path: "{{ web_root }}"
+        state: directory
+
+    - name: Copy build files
+      copy:
+        src: "{{ app_dir }}/build/"
+        dest: "{{ web_root }}/"
+        remote_src: yes
+
+    # Configure Nginx
+    - name: Configure Nginx for React
+      copy:
+        dest: /etc/nginx/sites-available/reactapp
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              root {{ web_root }};
+              index index.html;
+
+              location / {
+                  try_files $uri /index.html;
+              }
+          }
+
+    - name: Enable site
+      file:
+        src: /etc/nginx/sites-available/reactapp
+        dest: /etc/nginx/sites-enabled/reactapp
+        state: link
+        force: yes
+
+    - name: Remove default site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted

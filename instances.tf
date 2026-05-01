@@ -24,8 +24,8 @@ resource "aws_security_group" "VM_SGs" {
   }
 }
 
-resource "aws_key_pair" "amit_key" {
-  key_name   = "amit-key"
+resource "aws_key_pair" "test_key" {
+  key_name   = "test-key"
   public_key = file("~/.ssh/id_rsa.pub")
 }
 
@@ -33,22 +33,22 @@ resource "aws_instance" "VM" {
   ami                    = var.AMI
   instance_type          = var.TYPE
   count                  = var.COUNT
-  key_name               = aws_key_pair.amit_key.key_name
+  key_name               = aws_key_pair.test_key.key_name
   vpc_security_group_ids = [aws_security_group.VM_SGs.id]
 
   tags = {
-    Name = "VM-${count.index}"
+    Name = "Server-${count.index}"
   }
 
   user_data = <<-EOF
 #!/bin/bash
 
 # Create user
-adduser amituser --disabled-password --gecos ""
-echo "amituser:amituser" | chpasswd
+adduser testuser --disabled-password --gecos ""
+echo "testuser:testuser" | chpasswd
 
 # Give sudo access safely
-echo "amituser ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/amituser
+echo "testuser ALL=(ALL) NOPASSWD:ALL" | tee /etc/sudoers.d/testuser
 
 # Enable password authentication safely
 sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
@@ -57,13 +57,13 @@ sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/ss
 systemctl restart ssh
 
 # Setup SSH
-mkdir -p /home/amituser/.ssh
-chmod 700 /home/amituser/.ssh
+mkdir -p /home/testuser/.ssh
+chmod 700 /home/testuser/.ssh
 
-echo "${file("~/.ssh/id_rsa.pub")}" >> /home/amituser/.ssh/authorized_keys
+echo "${file("~/.ssh/id_rsa.pub")}" >> /home/testuser/.ssh/authorized_keys
 
-chmod 600 /home/amituser/.ssh/authorized_keys
-chown -R amituser:amituser /home/amituser/.ssh
+chmod 600 /home/testuser/.ssh/authorized_keys
+chown -R testuser:testuser /home/testuser/.ssh
 EOF
 }
 
@@ -82,7 +82,7 @@ resource "null_resource" "generate_inventory" {
     sudo bash -c 'echo "[webservers]" >> /etc/ansible/hosts'
 
     %{ for ip in aws_instance.VM[*].public_ip ~}
-    sudo bash -c 'echo "${ip} ansible_user=amituser ansible_ssh_private_key_file=~/.ssh/id_rsa" >> /etc/ansible/hosts'
+    sudo bash -c 'echo "${ip} ansible_user=testuser ansible_ssh_private_key_file=~/.ssh/id_rsa" >> /etc/ansible/hosts'
     %{ endfor ~}
     EOT
   }
@@ -108,7 +108,7 @@ resource "null_resource" "run_ansible" {
       done
     done
 
-    ansible-playbook -i /etc/ansible/hosts deploy_nginx_react_local.yml
+    ansible-playbook -i /etc/ansible/hosts deploy_family_tracker.yml
     EOT
   }
 }

@@ -1,0 +1,157 @@
+- hosts: webservers
+  become: yes
+
+  vars:
+    repo_url: "https://github.com/Websitesbuild/Family_Tracker_App.git"
+    app_dir: /opt/family_app
+    app_port: 3000
+    db_name: "family_Tracker"
+    db_user: "postgres"
+    db_password: "Amit@8085"
+
+  tasks:
+
+  # -----------------------------
+  # Install Dependencies
+  # -----------------------------
+  - name: Install required packages
+    apt:
+      name:
+      - nginx
+      - git
+      - curl
+      - postgresql
+      - postgresql-contrib
+      state: present
+      update_cache: yes
+
+  - name: Ensure PostgreSQL is running
+    service:
+      name: postgresql
+      state: started
+      enabled: yes
+
+  # -----------------------------
+  # Install Node.js
+  # -----------------------------
+  - name: Install Node.js 18
+    shell: |
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt-get install -y nodejs
+
+  - name: Install PM2 globally
+    npm:
+      name: pm2
+      global: yes
+
+  # -----------------------------
+  # Setup PostgreSQL
+  # -----------------------------
+  - name: Set postgres password
+    shell: |
+      sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '{{ db_password }}';"
+    ignore_errors: yes
+
+  - name: Create database if not exists
+    shell: |
+      sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'" | grep -q 1 || \
+      sudo -u postgres createdb "{{ db_name }}"
+
+  - name: Create tables
+    shell: |
+      sudo -u postgres psql -d "{{ db_name }}" <<EOF
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(50),
+        color VARCHAR(20)
+      );
+
+      CREATE TABLE IF NOT EXISTS countries (
+        id SERIAL PRIMARY KEY,
+        country_code CHAR(2),
+        country_name VARCHAR(100)
+      );
+
+      CREATE TABLE IF NOT EXISTS visited_countries (
+        id SERIAL PRIMARY KEY,
+        traveller_id INT,
+        country_code CHAR(2),
+        UNIQUE(traveller_id, country_code),
+        FOREIGN KEY (traveller_id) REFERENCES users(id)
+      );
+      EOF
+
+  - name: Insert sample users (if empty)
+    shell: |
+      sudo -u postgres psql -d "{{ db_name }}" -c "
+      INSERT INTO users(name,color)
+      SELECT * FROM (VALUES
+        ('Amit','teal'),
+        ('Sumit','red'),
+        ('Pooja','purple'),
+        ('Aarti','orange')
+      ) AS tmp(name,color)
+      WHERE NOT EXISTS (SELECT 1 FROM users);
+      "
+
+  # -----------------------------
+  # Deploy Application
+  # -----------------------------
+  - name: Clone application repo
+    git:
+      repo: "{{ repo_url }}"
+      dest: "{{ app_dir }}"
+      force: yes
+
+  - name: Install npm dependencies
+    command: npm install
+    args:
+      chdir: "{{ app_dir }}"
+
+  # -----------------------------
+  # Start App with PM2
+  # -----------------------------
+  - name: Start app with PM2
+    shell: |
+      cd {{ app_dir }}
+      pm2 delete family-app || true
+      pm2 start index.js --name family-app
+      pm2 save
+
+  # -----------------------------
+  # Configure Nginx
+  # -----------------------------
+  - name: Configure Nginx reverse proxy
+    copy:
+      dest: /etc/nginx/sites-available/family_app
+      content: |
+        server {
+            listen 80;
+            server_name _;
+
+            location / {
+                proxy_pass http://localhost:{{ app_port }};
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection 'upgrade';
+                proxy_set_header Host $host;
+                proxy_cache_bypass $http_upgrade;
+            }
+        }
+
+  - name: Enable Nginx site
+    file:
+      src: /etc/nginx/sites-available/family_app
+      dest: /etc/nginx/sites-enabled/family_app
+      state: link
+      force: yes
+
+  - name: Remove default Nginx config
+    file:
+      path: /etc/nginx/sites-enabled/default
+      state: absent
+
+  - name: Restart Nginx
+    service:
+      name: nginx
+      state: restarted

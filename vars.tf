@@ -3,7 +3,7 @@ variable "AMI" {
 }
 
 variable "TYPE" {
-  default = "t2.micro"
+  default = "t3.medium"
 }
 
 variable "COUNT" {

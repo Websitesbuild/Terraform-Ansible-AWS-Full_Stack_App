@@ -71,17 +71,22 @@ resource "null_resource" "generate_inventory" {
 
   depends_on = [aws_instance.VM]
 
+  triggers = {
+    always_run = timestamp()
+  }
+
   provisioner "local-exec" {
     command = <<EOT
-    sudo grep -q "\[webservers\]" /etc/ansible/hosts || sudo bash -c 'echo "[webservers]" >> /etc/ansible/hosts'
+    sudo sed -i '/\\[webservers\\]/,/^$/d' /etc/ansible/hosts
+
+    sudo bash -c 'echo "[webservers]" >> /etc/ansible/hosts'
 
     %{ for ip in aws_instance.VM[*].public_ip ~}
-    sudo bash -c 'grep -q "${ip}" /etc/ansible/hosts || echo "${ip} ansible_user=amituser ansible_ssh_private_key_file=~/.ssh/id_rsa" >> /etc/ansible/hosts'
+    sudo bash -c 'echo "${ip} ansible_user=amituser ansible_ssh_private_key_file=~/.ssh/id_rsa" >> /etc/ansible/hosts'
     %{ endfor ~}
     EOT
   }
 }
-
 
 resource "null_resource" "run_ansible" {
 
@@ -90,10 +95,20 @@ resource "null_resource" "run_ansible" {
     null_resource.generate_inventory
   ]
 
+  triggers = {
+    always_run = timestamp()
+  }
+
   provisioner "local-exec" {
     command = <<EOT
-    sleep 60
-    ansible-playbook -i /etc/ansible/hosts install_apache.yml
+    for ip in ${join(" ", aws_instance.VM[*].public_ip)}; do
+      echo "Waiting for $ip..."
+      while ! nc -z $ip 22; do
+        sleep 5
+      done
+    done
+
+    ansible-playbook -i /etc/ansible/hosts deploy_nginx_react_local.yml
     EOT
   }
 }

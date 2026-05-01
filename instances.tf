@@ -104,7 +104,7 @@ resource "null_resource" "run_ansible" {
     for ip in ${join(" ", aws_instance.VM[*].public_ip)}; do
       echo "Waiting for $ip..."
       while ! nc -z $ip 22; do
-        sleep 5
+        sleep 60
       done
     done
 

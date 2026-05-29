@@ -108,7 +108,7 @@ resource "null_resource" "run_ansible" {
       done
     done
 
-    ansible-playbook -i /etc/ansible/hosts deploy_family_tracker.yml
+    ansible-playbook -i /etc/ansible/hosts deploy_app.yml
     EOT
   }
 }
